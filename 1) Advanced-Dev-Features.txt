@@ -1,0 +1,30 @@
+For the advanced features, there are no files, just simple instructions, but these only pertain to the Linux based installations.
+
+There are some advanced features you can install at this point depending on what you want to do.
+
+In order to access these advanced features, go to the command line on the server the OpenNMS installation is installed on.
+
+server#> ssh -p 8101 admin@localhost
+
+Type in your password.
+
+Here are some commands to get you started. The nice part about this is that you can start typing, press tab, and get a list of possibilities.
+
+To get a help menu of available commands, you can type help and press enter.
+
+feature:list
+bundle:list
+feature:install <type feature name here>
+help
+
+You can see there is a large number of different features you can install.
+
+The next section of this notebook will cover ALEC, OpenNMS's AI/Machine Learning feature installation and setup.
+
+
+
+
+
+
+
+

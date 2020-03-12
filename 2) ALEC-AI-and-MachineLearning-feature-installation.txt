@@ -1,0 +1,471 @@
+If I'm not mistaken, somewhere in version 24.x, the ALEC AI Machine learning aspects were introduced.
+NOTE:  This installation was done on Ubuntu 18.04 LTS Server.
+
+Here is the link to the ALEC setup page for more detail.
+
+https://alec.opennms.com/alec/2.0.0-snapshot/
+
+My experimentation with ALEC has shown me that openNMS will crash during shutting down the services.
+It doesn't seem to affect the applications or the databases involved, but it's not entirely stable.
+
+I have tested ALEC in a large enterprise environment with well over 800 devices of various servers, switches, VMhosts, data storage, routers, appliances, firewalls, etc.
+
+When it comes to Machine learning, ALEC is only as smart as the information you feed it.
+
+As an example, if you want ALEC to learn about your network and associate various traps, polling data and syslog events, you should add all of your network gear to OpenNMS with all the proper MIBs, data collections, events and interfaces you need monitored on those devices first. Then immediately continue with the installation of ALEC.
+
+--------------------------------------------------------------
+
+To start, we need the backend setup.
+
+Openhelm and Grafana have already been installed via Dev Notebook 0.
+
+After you install this version of elasticsearch, or if you choose to experiment with a newer version, be sure you place a mark hold on the package upgrade to avoid breaking your installation.
+Just as with OpenNMS packages, upgrading the elasticsearch package I've found can also make your installation unstable, and or completely crash to an unrecoverable state.
+
+First we need to install Elasticsearch installed, with the repos, then put a hold on the package.
+Along side the elasticsearch package, you will also need it's equivalent version drift plugin.
+As of Horizon 25.2.0, Elasticsearch 7.3.0 is stable and per the opennms repo when trying to install the elasticsearch drift plugin, it says it's required.
+
+0) Quick reminder of opennms helm installation from opennms repo as noted in repo 0.
+nms@opennms:~$ sudo apt-get install opennms-helm
+Reading package lists... Done
+Building dependency tree       
+Reading state information... Done
+opennms-helm is already the newest version (5.0.1-1).
+0 upgraded, 0 newly installed, 0 to remove and 24 not upgraded.
+nms@opennms:~$ sudo grafana-cli plugins install opennms-helm-app
+installing opennms-helm-app @ 5.0.1
+from: https://grafana.com/api/plugins/opennms-helm-app/versions/5.0.1/download
+into: /var/lib/grafana/plugins
+
+✔ Installed opennms-helm-app successfully 
+
+Restart grafana after installing plugins . <service grafana-server restart>
+
+nms@opennms:~$ sudo systemctl restart grafana-server
+
+
+1) Let's make sure our paths are setup for java and opennms home.
+This was also done in notebook 0, but I want to re-address this just in case you missed this.
+In Ubuntu 18.04 LTS or a Debian based installation, you'll need to check this directory for 2 files.
+
+/etc/profile.d/java.sh
+/etc/profile.d/opennmsexport.sh
+
+Here are the contents of both:
+nms@opennms:/etc/profile.d$ cat opennmsexport.sh 
+export OPENNMS_HOME=/usr/share/opennms
+nms@opennms:/etc/profile.d$ cat java.sh 
+export JAVA_HOME=/usr/lib/jvm/java-11-openjdk
+
+This ensures your home paths are setup on boot.
+
+2) The latest supported drift plugin is in the opennms repo, so let's take a look at the latest to see what's there.
+
+nms@opennms:/etc/profile.d$ sudo apt-cache search elasticsearch-drift-plugin
+elasticsearch-drift-plugin - Time series aggregation for flow records in Elasticsearch
+nms@opennms:/etc/profile.d$ sudo apt-cache policy elasticsearch-drift-plugin
+elasticsearch-drift-plugin:
+  Installed: (none)
+  Candidate: 7.3.0
+  Version table:
+     7.3.0 500
+        500 http://debian.opennms.org stable/main amd64 Packages
+        500 http://debian.opennms.org stable/main i386 Packages
+
+I will be installing elasticsearch version 7.3.0 as a result of this find. And I will restate, mark hold on your elasticsearch packages so they don't update from the repos based on the scripting notebook.
+
+3) Let's add the official elasticsearh 7.x repo. 2 commands
+
+sudo wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
+sudo add-apt-repository "deb https://artifacts.elastic.co/packages/7.x/apt stable main"
+
+4) Don't worry about this output.
+W: Conflicting distribution: http://debian.opennms.org stable Release (expected stable but got opennms-25)
+
+5) now let's run an update.
+sudo apt-get update
+
+6) Let's take a look at what the elasticsearch repo has for us.
+nms@opennms:/etc/profile.d$ sudo apt-cache policy elasticsearch
+elasticsearch:
+  Installed: (none)
+  Candidate: 7.6.1
+  Version table:
+     7.6.1 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.6.0 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.5.2 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.5.1 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.5.0 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.4.2 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.4.1 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.4.0 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.3.2 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.3.1 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.3.0 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.2.1 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.2.0 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.1.1 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.1.0 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.0.1 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+     7.0.0 500
+        500 https://artifacts.elastic.co/packages/7.x/apt stable/main amd64 Packages
+
+
+7) We need 7.3.0 because it matches the drift plugin version in the opennms repo, so let's issue a version specific installation.
+
+sudo apt-get install elasticsearch=7.3.0
+
+8) Now let's install the drift plugin.
+
+sudo apt-get install elasticsearch-drift-plugin
+
+9) Now let's apt-mark hold these 2 packages, so a repo update doesn't break our installation. 2 commands below.
+
+sudo apt-mark hold elasticsearch
+sudo apt-mark hold elasticsearch-drift-plugin
+
+10) Now let's verify our held packages. You can see from my output, the packages I've also held to keep opennms repo updates from breaking my installation which is covered in dev notebook 0.
+
+nms@opennms:/etc/profile.d$ sudo apt-mark showhold
+elasticsearch
+elasticsearch-drift-plugin
+libopennms-java
+libopennmsdeps-java
+opennms
+opennms-alec-plugin
+opennms-common
+opennms-db
+opennms-plugin-collector-vtdxml-handler
+opennms-plugin-northbounder-jms
+opennms-plugin-protocol-cifs
+opennms-plugin-protocol-nsclient
+opennms-plugin-protocol-radius
+opennms-plugin-protocol-xmp
+opennms-plugin-provisioning-dns
+opennms-plugin-provisioning-rancid
+opennms-plugin-provisioning-reverse-dns
+opennms-plugin-provisioning-snmp-asset
+opennms-plugin-provisioning-snmp-hardware-inventory
+opennms-plugin-ticketer-jira
+opennms-plugin-ticketer-otrs
+opennms-plugin-ticketer-rt
+opennms-plugins
+opennms-server
+opennms-source
+opennms-webapp-jetty
+
+11) Now let's make sure the service is started, and that it is enabled on boot.
+
+sudo systemctl start elasticsearch
+sudo systemctl enable elasticsearch
+
+12) The /etc/elasticsearch directory is only available under it's user. Check for yourself.
+
+cd /etc
+ls -lash | grep elasticsearch
+
+Output should look like this.
+
+nms@opennms:/etc/profile.d$ cd /etc
+nms@opennms:/etc$ ls -lash | grep elasticsearch
+4.0K drwxr-s---   2 root     elasticsearch 4.0K Mar 11 16:41 elasticsearch
+
+Change to root, and access folder, but pay CLOSE attention to the chown parameters
+
+nms@opennms:/etc$ sudo su
+root@opennms:/etc# cd elasticsearch
+root@opennms:/etc/elasticsearch# ls -lash
+total 60K
+4.0K drwxr-s---   2 root elasticsearch 4.0K Mar 11 16:41 .
+ 12K drwxr-xr-x 138 root root           12K Mar 11 16:40 ..
+4.0K -rw-rw----   1 root elasticsearch  199 Mar 11 16:41 elasticsearch.keystore
+4.0K -rw-r--r--   1 root elasticsearch   76 Mar 11 16:41 .elasticsearch.keystore.initial_md5sum
+4.0K -rw-rw----   1 root elasticsearch 2.8K Jul 24  2019 elasticsearch.yml
+4.0K -rw-rw----   1 root elasticsearch 3.6K Jul 24  2019 jvm.options
+ 20K -rw-rw----   1 root elasticsearch  17K Jul 24  2019 log4j2.properties
+4.0K -rw-rw----   1 root elasticsearch  473 Jul 24  2019 role_mapping.yml
+4.0K -rw-rw----   1 root elasticsearch  197 Jul 24  2019 roles.yml
+   0 -rw-rw----   1 root elasticsearch    0 Jul 24  2019 users
+   0 -rw-rw----   1 root elasticsearch    0 Jul 24  2019 users_roles
+
+Now let's edit the elasticsearch.yml file. Go to cluster section of the file and uncomment this. The default says my-application, I changed it to opennms since it's for opennms.
+
+cluster.name: opennms
+
+Now exit from root user and reload the daemon, and restart elasticsearch.
+
+sudo systemctl daemon-reload
+sudo systemctl restart elasticsearch.service
+
+Elasticsearch portion is complete now.
+
+Now let's go to the opennms advanced feature installation via ssh -p 8101 admin@localhost and load the elasticsearch rest plugin
+nms@opennms:~$ ssh -p 8101 admin@localhost
+admin@opennms> feature:install opennms-es-rest
+
+Now let's configure a few things.
+admin@opennms> config:edit org.opennms.features.alarms.history.elastic
+admin@opennms> config:property-set elasticUrl http://127.0.0.1:9200
+admin@opennms> config:update
+admin@opennms> feature:install opennms-alarm-history-elastic
+
+Now logout, and reboot the server to make sure everything comes back up. Below is a typical output of checking everything after reboot.
+
+nms@opennms:~$ sudo systemctl status opennms
+● opennms.service - LSB: OpenNMS - Open Source Network Management System
+   Loaded: loaded (/etc/init.d/opennms; generated)
+   Active: active (running) since Wed 2020-03-11 17:11:49 CDT; 3min 47s ago
+     Docs: man:systemd-sysv-generator(8)
+  Process: 1309 ExecStart=/etc/init.d/opennms start (code=exited, status=0/SUCCESS)
+    Tasks: 204 (limit: 4915)
+   CGroup: /system.slice/opennms.service
+           └─4191 /usr/lib/jvm/java-11-openjdk-amd64/bin/java --add-modules=java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.prefs,java.rmi,java.scripting,java.security.jgss,java.secur
+
+Mar 11 17:10:30 opennms systemd[1]: Starting LSB: OpenNMS - Open Source Network Management System...
+Mar 11 17:11:49 opennms opennms[1309]: Starting Open Network Management System: opennmsStarting OpenNMS: (not waiting for startup) ok
+Mar 11 17:11:49 opennms opennms[1309]: .
+Mar 11 17:11:49 opennms systemd[1]: Started LSB: OpenNMS - Open Source Network Management System.
+nms@opennms:~$ sudo systemctl status elasticsearch
+● elasticsearch.service - Elasticsearch
+   Loaded: loaded (/usr/lib/systemd/system/elasticsearch.service; enabled; vendor preset: enabled)
+   Active: active (running) since Wed 2020-03-11 17:10:30 CDT; 5min ago
+     Docs: http://www.elastic.co
+ Main PID: 1284 (java)
+    Tasks: 64 (limit: 4915)
+   CGroup: /system.slice/elasticsearch.service
+           ├─1284 /usr/share/elasticsearch/jdk/bin/java -Xms1g -Xmx1g -XX:+UseConcMarkSweepGC -XX:CMSInitiatingOccupancyFraction=75 -XX:+UseCMSInitiatingOccupancyOnly -Des.networkaddress.cache.ttl=60 -Des.networkaddress.cache.negative.ttl=10 -XX:+AlwaysPreTouch -Xss1m -Dj
+           └─2841 /usr/share/elasticsearch/modules/x-pack-ml/platform/linux-x86_64/bin/controller
+
+Mar 11 17:10:30 opennms systemd[1]: Started Elasticsearch.
+Mar 11 17:10:40 opennms elasticsearch[1284]: OpenJDK 64-Bit Server VM warning: Option UseConcMarkSweepGC was deprecated in version 9.0 and will likely be removed in a future release.
+nms@opennms:~$ sudo systemctl status postgresql
+● postgresql.service - PostgreSQL RDBMS
+   Loaded: loaded (/lib/systemd/system/postgresql.service; enabled; vendor preset: enabled)
+   Active: active (exited) since Wed 2020-03-11 17:10:28 CDT; 5min ago
+  Process: 1033 ExecStart=/bin/true (code=exited, status=0/SUCCESS)
+ Main PID: 1033 (code=exited, status=0/SUCCESS)
+
+Mar 11 17:10:28 opennms systemd[1]: Starting PostgreSQL RDBMS...
+Mar 11 17:10:28 opennms systemd[1]: Started PostgreSQL RDBMS.
+nms@opennms:~$ sudo systemctl status grafana-server
+● grafana-server.service - Grafana instance
+   Loaded: loaded (/usr/lib/systemd/system/grafana-server.service; enabled; vendor preset: enabled)
+   Active: active (running) since Wed 2020-03-11 17:10:30 CDT; 5min ago
+     Docs: http://docs.grafana.org
+ Main PID: 1283 (grafana-server)
+    Tasks: 11 (limit: 4915)
+   CGroup: /system.slice/grafana-server.service
+           └─1283 /usr/sbin/grafana-server --config=/etc/grafana/grafana.ini --pidfile=/var/run/grafana/grafana-server.pid --packaging=deb cfg:default.paths.logs=/var/log/grafana cfg:default.paths.data=/var/lib/grafana cfg:default.paths.plugins=/var/lib/grafana/plugins cf
+
+Mar 11 17:10:32 opennms grafana-server[1283]: t=2020-03-11T17:10:32-0500 lvl=info msg="Initializing SearchService" logger=server
+Mar 11 17:10:32 opennms grafana-server[1283]: t=2020-03-11T17:10:32-0500 lvl=info msg="Initializing TracingService" logger=server
+Mar 11 17:10:32 opennms grafana-server[1283]: t=2020-03-11T17:10:32-0500 lvl=info msg="Initializing UsageStatsService" logger=server
+Mar 11 17:10:32 opennms grafana-server[1283]: t=2020-03-11T17:10:32-0500 lvl=info msg="Initializing CleanUpService" logger=server
+Mar 11 17:10:32 opennms grafana-server[1283]: t=2020-03-11T17:10:32-0500 lvl=info msg="Initializing NotificationService" logger=server
+Mar 11 17:10:32 opennms grafana-server[1283]: t=2020-03-11T17:10:32-0500 lvl=info msg="Initializing provisioningServiceImpl" logger=server
+Mar 11 17:10:32 opennms grafana-server[1283]: t=2020-03-11T17:10:32-0500 lvl=info msg="Backend rendering via phantomJS" logger=rendering renderer=phantomJS
+Mar 11 17:10:32 opennms grafana-server[1283]: t=2020-03-11T17:10:32-0500 lvl=warn msg="phantomJS is deprecated and will be removed in a future release. You should consider migrating from phantomJS to grafana-image-renderer plugin." logger=rendering renderer=phantomJS
+Mar 11 17:10:32 opennms grafana-server[1283]: t=2020-03-11T17:10:32-0500 lvl=info msg="Initializing Stream Manager"
+Mar 11 17:10:32 opennms grafana-server[1283]: t=2020-03-11T17:10:32-0500 lvl=info msg="HTTP Server Listen" logger=http.server address=[::]:3000 protocol=http subUrl= socket=
+nms@opennms:~$ sudo systemctl status syslog-ng
+● syslog-ng.service - System Logger Daemon
+   Loaded: loaded (/lib/systemd/system/syslog-ng.service; enabled; vendor preset: enabled)
+   Active: active (running) since Wed 2020-03-11 17:10:25 CDT; 6min ago
+     Docs: man:syslog-ng(8)
+ Main PID: 811 (syslog-ng)
+    Tasks: 1 (limit: 4915)
+   CGroup: /system.slice/syslog-ng.service
+           └─811 /usr/sbin/syslog-ng -F
+
+Mar 11 17:10:24 opennms systemd[1]: Starting System Logger Daemon...
+Mar 11 17:10:25 opennms syslog-ng[811]: [2020-03-11T17:10:25.051623] Error opening plugin module; module='lua', error='/usr/lib/syslog-ng/3.13/liblua.so: undefined symbol: lua_register_template_class'
+Mar 11 17:10:25 opennms systemd[1]: Started System Logger Daemon.
+nms@opennms:~$ sudo opennms -v status
+OpenNMS.Eventd              : running
+OpenNMS.Alarmd              : running
+OpenNMS.Bsmd                : running
+OpenNMS.Ticketer            : running
+OpenNMS.Trapd               : running
+OpenNMS.Queued              : running
+OpenNMS.Actiond             : running
+OpenNMS.Notifd              : running
+OpenNMS.Scriptd             : running
+OpenNMS.Rtcd                : running
+OpenNMS.Pollerd             : running
+OpenNMS.PollerBackEnd       : running
+OpenNMS.EnhancedLinkd       : running
+OpenNMS.Collectd            : running
+OpenNMS.Discovery           : running
+OpenNMS.Vacuumd             : running
+OpenNMS.EventTranslator     : running
+OpenNMS.PassiveStatusd      : running
+OpenNMS.Statsd              : running
+OpenNMS.Provisiond          : running
+OpenNMS.Reportd             : running
+OpenNMS.Ackd                : running
+OpenNMS.JettyServer         : running
+OpenNMS.KarafStartupMonitor : running
+OpenNMS.Syslogd             : running
+OpenNMS.Telemetryd          : running
+opennms is running
+
+
+13) Now let's test elasticsearch communication from the CLI and get a list of the index.
+nms@opennms:~$ curl -X GET "http://localhost:9200/?pretty"
+{
+  "name" : "opennms",
+  "cluster_name" : "opennms",
+  "cluster_uuid" : "0LpnylThQIOnvTjeMaBy9Q",
+  "version" : {
+    "number" : "7.3.0",
+    "build_flavor" : "default",
+    "build_type" : "deb",
+    "build_hash" : "de777fa",
+    "build_date" : "2019-07-24T18:30:11.767338Z",
+    "build_snapshot" : false,
+    "lucene_version" : "8.1.0",
+    "minimum_wire_compatibility_version" : "6.8.0",
+    "minimum_index_compatibility_version" : "6.0.0-beta1"
+  },
+  "tagline" : "You Know, for Search"
+}
+}
+nms@opennms:~$ curl 'localhost:9200/_cat/indices?v'
+health status index                      uuid                   pri rep docs.count docs.deleted store.size pri.store.size
+yellow open   opennms-alarms-2020-03     szVV4cZpT-GjNfnT90r6sg   1   1          2            0     16.3kb         16.3kb
+yellow open   opennms-events-raw-2020-03 pq4HRNQwRL63ceUoIeQxLg   1   1          8            0     13.5kb         13.5kb
+
+My status is yellow, because I have no nodes in my current installation.
+
+14) I'm going to load almost all of the ALEC features since this is a Dev box. Start with the plugin.
+You may have to login to your server on a sepaerate SSH session and reboot during installation. Just means it needs a reboot. No prompt unfortunately.
+I reboot after installing the plugin, then continue with the additional features.
+
+
+Let's look for ALEC features as of Horizon 25.2.0.
+nms@opennms:~$ ssh -p 8101 admin@localhost
+admin@opennms> feature:list | grep ALEC
+alec-datasource-api                         │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: API
+alec-datasource-opennms-common              │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: OpenNMS Common
+alec-datasource-jaxb                        │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: JAXB
+alec-datasource-opennms-kafka               │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: OpenNMS Kafka
+alec-datasource-opennms-direct              │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: OpenNMS Direct
+alec-datasource-shell                       │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: Shell
+alec-engine                                 │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Engine
+alec-engine-api                             │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Engine :: API
+alec-engine-cluster                         │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Engine :: Cluster
+alec-engine-dbscan                          │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Engine :: DB-Scan
+alec-engine-deeplearning                    │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Engine :: Deep Learning
+alec-driver-main                            │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Driver :: Main
+alec-features-graph-api                     │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Graph :: API
+alec-features-graph-graphml                 │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Graph :: GraphML
+alec-features-graph-common                  │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Graph :: Service
+alec-features-graph-shell                   │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Graph :: Shell
+alec-features-graph-rest                    │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Graph :: REST
+alec-processor-api                          │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Processor :: API
+alec-processor-standalone                   │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Processor :: Standalone
+alec-processor-redundant                    │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Processor :: Redundant
+alec-features-score                         │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Score
+alec-features-shell                         │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Shell
+alec-features-deeplearning                  │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Deep learning
+opennms-alec-plugin                         │ 1.0.2            │          │ Uninstalled │ alec-features                    │ OpenNMS :: ALEC :: Plugin
+alec-integrations-opennms-sink              │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Integrations :: OpenNMS :: Sink
+admin@opennms> feature:install opennms-alec-plugin
+admin@opennms> logout
+nms@opennms> sudo reboot
+
+15) Now once you have verified all services are back up and running, let's continue with the feature installation.
+Install standalone. Do not install redundant. You don't need both on the same OpenNMS installation node/minion.
+Run a feature:list after installing each feature to see if others were installed as dependencies.
+
+nms@opennms:~$ ssh -p 8101 admin@localhost
+admin@opennms> feature:list | grep ALEC
+alec-datasource-api                         │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: API
+alec-datasource-opennms-common              │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: OpenNMS Common
+alec-datasource-jaxb                        │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: JAXB
+alec-datasource-opennms-kafka               │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: OpenNMS Kafka
+alec-datasource-opennms-direct              │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: OpenNMS Direct
+alec-datasource-shell                       │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Datasource :: Shell
+alec-engine                                 │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Engine
+alec-engine-api                             │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Engine :: API
+alec-engine-cluster                         │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Engine :: Cluster
+alec-engine-dbscan                          │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Engine :: DB-Scan
+alec-engine-deeplearning                    │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Engine :: Deep Learning
+alec-driver-main                            │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Driver :: Main
+alec-features-graph-api                     │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Graph :: API
+alec-features-graph-graphml                 │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Graph :: GraphML
+alec-features-graph-common                  │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Graph :: Service
+alec-features-graph-shell                   │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Graph :: Shell
+alec-features-graph-rest                    │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Graph :: REST
+alec-processor-api                          │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Processor :: API
+alec-processor-standalone                   │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Processor :: Standalone
+alec-processor-redundant                    │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Processor :: Redundant
+alec-features-score                         │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Score
+alec-features-shell                         │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Shell
+alec-features-deeplearning                  │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Features :: Deep learning
+opennms-alec-plugin                         │ 1.0.2            │ x        │ Started     │ alec-features                    │ OpenNMS :: ALEC :: Plugin
+alec-integrations-opennms-sink              │ 1.0.2            │          │ Uninstalled │ alec-features                    │ ALEC :: Integrations :: OpenNMS :: Sink
+
+I will continue installing features, but will not copy further output. You can see what's going on at this point, but I will post the order I installed them in though.
+I do not have a rhyme or reason as to the order in which I installed the features, but I did run a feature:list | grep ALEC after every installation to check status of installed ALEC features.
+
+admin@opennms> feature:install alec-processor-standalone
+admin@opennms> feature:install alec-engine-deeplearning
+admin@opennms> feature:install alec-features-deeplearning
+rebooted after this as it was hanging, and autologged me out of the feature installation session. I did wait until after it autologged me out of the feature installation to soft reboot at the CLI.
+At this point, the 5 minute hang/crash of OpenNMS services begins to happen as mentioned in the Warning file on this github Dev notebook.
+admin@opennms> feature:install alec-engine-dbscan
+admin@opennms> feature:install alec-engine-cluster
+admin@opennms> feature:install alec-engine
+admin@opennms> feature:install alec-driver-main
+admin@opennms> feature:install alec-engine-api
+admin@opennms> feature:install alec-features-score
+admin@opennms> feature:install alec-features-graph-api
+admin@opennms> feature:install alec-features-shell 
+admin@opennms> feature:install alec-integrations-opennms-sink
+admin@opennms> feature:install alec-features-graph-graphml
+admin@opennms> feature:install alec-features-graph-shell
+admin@opennms> feature:install alec-features-graph-common
+had to reboot after this point, because when trying to install the alec-features-graph-rest feature, I got artifact errors in the console. I will be skipping this for now.
+The strange thing, is that at this point in the installation, the server did not hang up for 5 minutes on trying to shut down opennms services.
+admin@opennms> feature:install alec-datasource-opennms-common 
+admin@opennms> feature:install alec-datasource-opennms-kafka
+admin@opennms> feature:install alec-datasource-opennms-direct
+admin@opennms> feature:install alec-datasource-shell
+I logged out and rebooted the computer at this point. It took the full 5 minutes for the OpenNMS application to crash.
+As a result of this which happens since ALEC was implemented, nothing is affected. OpenNMS, Syslog-NG, Postgresql and the database integrity, grafana-server, and Elasticsearch are not affected.
+
+
+At this point, that's the bulk of the ALEC/AI/Machine Learning installation.
+I don't recommend using it in a production environment at the time of the OpenNMS Horizon 25.2.0 version.
+
+
+
+
+
+
+
+
+
+
+
+
+
